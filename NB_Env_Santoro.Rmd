@@ -1,0 +1,698 @@
+---
+title: "Environmental and Genomic Data Analysis"
+output: html_notebook
+---
+G. Santoro
+
+Estimating daily PM10 levels with 1 km x 1 km (cell) resolution in a 200 Km x 200 Km (40000 cells) area southeast of Great Britain.
+
+Set up and libraries load
+```{r}
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+library(rpart); library(corrplot); library(caret); library(earth); library(broom); library(plotmo); library(ranger); library(randomForest); library(xgboost); library(neuralnet); library(e1071); #library(keras)
+```
+
+
+Load dataset as a dataframe
+```{r}
+datapm<-readRDS("dataPM10LONDON.RDS")
+
+str(datapm)
+```
+Dataset has a historical series structure: every record is a daily measure of a monitor, with a total 56670 observations of 55 variables.
+
+
+```{r}
+monitors<-unique(datapm$code.source)  # code.source code of the specific monitor
+(nmonitors<-length(monitors))  # monitor amount
+
+osgrid<-unique(datapm$osgrid.id)   # cell code
+(nosgrid<-length(osgrid)) # cell amount
+
+#summary(datapm)
+```
+Some of the 160 cells have more than 1 monitor (170)
+
+
+VARIABLES INCLUDED IN THE DATASET
+```{r}
+# # RESPONSE
+# summary(datapm$logpm10)
+hist(datapm$logpm10)
+# 
+# # PREDICTORS
+# 
+# ### TIME
+# table(datapm$we)  # weekend or not. 2 : 7
+# 
+# table(datapm$Jan)  # 1 : 12
+# table(datapm$Feb)
+# table(datapm$Mar)
+# table(datapm$Apr)
+# table(datapm$May)
+# table(datapm$Jun)
+# table(datapm$Jul)
+# table(datapm$Aug)
+# table(datapm$Sep)
+# table(datapm$Oct)
+# table(datapm$Nov)
+# 
+# ### ROADS LENGTH
+# summary(datapm$highway)
+hist(datapm$highway)
+# 
+# summary(datapm$secondary)
+# hist(datapm$secondary)
+# 
+# summary(datapm$local)
+# hist(datapm$local)
+# 
+# # DISTANCES FROM AIRPORTS AND SEASHORE
+# summary(datapm$sea.invd)
+# hist(datapm$sea.invd)
+# 
+# summary(datapm$airp.invd)
+# hist(datapm$airp.invd)
+# 
+# 
+# # POPULATION
+# summary(datapm$OA.popwei.1km)  # people in 1 km^2?
+# hist(datapm$OA.popwei.1km)
+# 
+# # ELEVATION
+# summary(datapm$elev.1km)
+# hist(datapm$elev.1km)
+# 
+# # NIGHT LIGHTS
+# summary(datapm$night.1km)
+# hist(datapm$night.1km)
+# 
+# 
+# # IMPERVIOUS SOURFACES
+# summary(datapm$ImpS)
+# hist(datapm$ImpS)
+# 
+# 
+# # NDVI
+# summary(datapm$ndvi)
+# hist(datapm$ndvi)
+# 
+# 
+# # LAND USE
+# summary(datapm$cl1)
+# hist(datapm$cl1)
+# 
+# summary(datapm$cl2)
+# hist(datapm$cl2)
+# 
+# summary(datapm$cl3)
+# hist(datapm$cl3)
+# 
+# summary(datapm$cl4)
+# hist(datapm$cl4)
+# 
+# summary(datapm$cl5)
+# hist(datapm$cl5)
+# 
+# summary(datapm$cl6)
+# hist(datapm$cl6)
+# 
+# summary(datapm$cl7)
+# hist(datapm$cl7)
+# 
+# # BOUNDARY LAYER HEIGHT
+# summary(datapm$era5_PBL0h)
+# hist(datapm$era5_PBL0h)
+# 
+# summary(datapm$era5_PBL12h)
+# hist(datapm$era5_PBL12h)
+# 
+# # SEA LEVEL PRESSURE
+# summary(datapm$era5_SeaPrmean)
+# hist(datapm$era5_SeaPrmean)
+# 
+# # MEAN TEMPERATURE
+# summary(datapm$eraland_Tmean)
+# hist(datapm$eraland_Tmean)
+# 
+# # PRECIPITATIONS
+# summary(datapm$eraland_Precmean)
+# hist(datapm$eraland_Precmean)
+# 
+# # RELATIVE HUMIDITY
+# summary(datapm$mescan_RHmean)
+# hist(datapm$mescan_RHmean)
+# 
+# # WIND SPEED
+# summary(datapm$mescan_WSmean)
+# hist(datapm$mescan_WSmean)
+# 
+# # WIND DIRECTION
+# summary(datapm$mescan_WDmean)
+hist(datapm$mescan_WDmean)
+# 
+# # CHEMICAL TRANSPORT MODEL EMEP4UK
+# 
+# # PM25
+# summary(datapm$logEMEPUK_PM25)
+# hist(datapm$logEMEPUK_PM25)
+# 
+# # PM10
+# summary(datapm$logEMEPUK_PM10)
+# hist(datapm$logEMEPUK_PM10)
+# 
+# # DUST
+# summary(datapm$logEMEPUK_DUST)
+# hist(datapm$logEMEPUK_DUST)
+# 
+# # SEA SALT
+# summary(datapm$logEMEPUK_SSALT)
+# hist(datapm$logEMEPUK_SSALT)
+# 
+# # aerosol optical depth (AOD)
+# summary(datapm$best_AOD047_pred_measu)
+# hist(datapm$best_AOD047_pred_measu)
+# 
+# summary(datapm$best_AOD055_pred_measu)
+# hist(datapm$best_AOD055_pred_measu)
+# 
+# # Spatially-Lagged and Nearest Monitor PM2.5 Variables
+# 
+# # TRAFFIC
+# summary(datapm$idw1logpm25traf)
+# hist(datapm$idw1logpm25traf)
+# 
+# summary(datapm$idw2logpm25traf)
+# hist(datapm$idw2logpm25traf)
+# 
+# summary(datapm$Traffic_dist_PM25)
+hist(datapm$Traffic_dist_PM25)
+# 
+# # BACKGROUND
+# summary(datapm$idw1logpm25nontraf)
+# hist(datapm$idw1logpm25nontraf)
+# 
+# summary(datapm$idw2logpm25nontraf)
+# hist(datapm$idw2logpm25nontraf)
+# 
+# summary(datapm$nonTraffic_dist_PM25)
+# hist(datapm$nonTraffic_dist_PM25)
+```
+Here some of the variable of the dataset are plotted to see some distributions of predictors.
+logpm10: outcome, simmetrical and not far from a normal distr.
+mescan_WDmean: mean value of the wind, maybe binormal since two preferable way of the wind over the surface?
+highway: inverse of the distance from highways
+Traffic_dist_PM25: minimum distance from a monitor
+
+
+# EXPLORE CORRELATION AMONG PREDICTORS
+```{r}
+# DEFINE VARIABLES
+predictors.n <- c(
+  ##### PREDICTORS #####
+  ### TIME
+  "we","Jan","Feb", "Mar", "Apr","May", "Jun", "Jul", "Aug", "Sep","Oct", "Nov",
+  ### ROADS LENGTH
+  "highway","secondary", "local",
+  ### SEA, AIRPORTS INVERSE DISTANCE
+  "sea.invd","airp.invd", 
+  ### POPULATION 
+  "OA.popwei.1km", 
+  ### NIGHT LIGHTS, ISA, ELEVATION, NDVI
+  "night.1km","ImpS","elev.1km","ndvi",
+  ### LAND USE (%)
+  "cl1" , "cl2" , "cl3" , "cl4" ,
+  "cl5" , "cl6" , "cl7" ,
+  ### METEO
+  "era5_PBL0h","era5_PBL12h",
+  "era5_SeaPrmean",
+  "eraland_Tmean","eraland_Precmean",
+  "mescan_RHmean","mescan_WDmean","mescan_WSmean",
+  ### AOD
+  "best_AOD047_pred_measu", "best_AOD055_pred_measu",
+  ### EMEP4UK
+  "logEMEPUK_PM25", "logEMEPUK_PM10",
+  "logEMEPUK_DUST","logEMEPUK_SSALT" ,
+  ## MONITOR DISTANCE
+  "Traffic_dist_PM25","nonTraffic_dist_PM25",
+  #IDW TRAFFIC AND NONTRAFFIC
+  "idw2logpm25traf","idw1logpm25traf",
+  "idw2logpm25nontraf", "idw1logpm25nontraf"
+)
+
+predictors<-datapm[,predictors.n]
+
+feature_variance<-nearZeroVar(predictors, saveMetrics=TRUE)
+
+corpredictor<-cor(predictors, method="pearson")
+```
+
+
+High correlation can lead to collinearity issues, negatively impacting predictive model performance.
+Define the set of predictors and calculate the Pearson correlation matrix among them.
+```{r}
+layout(1)
+par(mex=1)
+corrplot(corpredictor, type = "upper",
+  tl.col = "black", tl.srt = 45,tl.cex=0.5)
+```
+
+
+In caret (Classification and Regression Training) package there's findCorrelation() to identify predictors with high correlation.
+```{r}
+high_corel<-findCorrelation(corpredictor, cutoff=0.9)
+
+(highcor<-names(predictors)[high_corel])
+```
+There're 2 variables with correlation greater than 0.9: idw2logpm25nontraf e best_AOD047_pred_measu, with respect to idw1logpm25nontraf and best_AOD055_pred_measu.
+```{r}
+corpredictor[,high_corel]
+```
+
+With findLinearCombos() check if there's linear combination within variables:
+```{r}
+(lincomb<-findLinearCombos(predictors)) 
+```
+In this case there is no linear correlation.
+
+Delete idw2logpm25nontraf e best_AOD047_pred_measu since they aren't adding info, since very correlated with 2 other variables.
+```{r}
+datapm$idw2logpm25nontraf<-NULL
+datapm$best_AOD047_pred_measu<-NULL
+```
+
+Data are clustered by monitors, so assess accuracy of the model by dividing the monitors into two groups: training and test sets.
+The variable "split" contains the indicator for the 10 random groups into which the 179 monitoring stations have been divided.
+
+# TRAIN-TEST dataset
+```{r}
+table(datapm$split)  # devide dataset into this sections
+#table(datapm$code.source, as.factor(datapm$split)) # which monitor in which section
+```
+
+
+Assing 3 groups to test and 7 to train:
+```{r}
+set.seed(23)
+
+test1<-datapm[datapm$split%in%sample(1:10,3),]
+
+train1<-datapm[!datapm$split%in%sample(1:10,3),]
+```
+
+Alternatively, without considering clusterizzation of the monitors:
+```{r}
+set.seed(23)
+random.test<-runif(nrow(datapm))
+test2<-datapm[random.test>=0.7,]
+train2<-datapm[random.test<0.7,]
+```
+
+
+Put these dataframes into a list:
+```{r}
+data.test.train<-list(train1,test1, train2,test2)
+```
+
+
+# REGRESSION
+
+Multivariable linear regression model. 
+Let's consider the training data frame train, which is the first element of the data.test.train list. 
+Define the train.features dataframe containing predictors and the train.outcome vector containing the outcome (logpm10).
+```{r}
+train<-data.test.train[[1]]
+
+names(train)
+```
+
+
+```{r}
+train.features<-train[,c(6:52)]  # predictors
+
+train.outcome<-train[,4]   #Outcome = logpm10
+```
+
+
+# MAX-MIN NORMALIZATION
+To compare the obtained coefficients and analyze the differences with subsequent models, let's transform the predictive variables (features) into variables with values ranging from 0 to 1.
+```{r}
+normalize <- function(x) {
+  return ((x - min(x)) / (max(x) - min(x)))
+}
+
+train.features.s<-as.data.frame(lapply(train.features, normalize))
+```
+
+
+# MULTIPLE REGRESSION
+
+Predictor selection: non-informative predictors can lead to model overfitting. 
+Implemented automatic predictor selection in a linear regression model,forward selection using the train() function.
+Every iteration the model considers one more variable.
+```{r}
+datalm<-train.features.s
+
+train_logy<-train.outcome
+
+# Control parameters
+step_control<-trainControl(method="cv",
+                           number = 5,
+                           returnResamp = "final")
+
+set.seed(23)
+
+step_fit<-train(datalm,train_logy, method ="leapForward",
+                tuneGrid = data.frame(nvmax=1:48),
+                trControl = step_control,
+                trace = TRUE)
+
+step_fit$results
+
+plot(step_fit)
+```
+The graph displays the RMSE for models with different numbers of predictors, where error appears to stabilize with a number of predictors close to 40.
+
+```{r}
+(nfit<-as.integer(step_fit$bestTune))
+```
+The number that optimizes the RMSE is 45. In this case the model predicts worse because noise is introduced with more variables included.
+
+
+The formula to be used in the linear regression model with the 45 selected predictors is defined as follows:
+```{r}
+step_coef<-tidy(coef(step_fit$finalModel,nfit))
+
+step_coef<-step_coef[-1,]
+
+(lm_formula<-as.formula(paste("y~",paste(step_coef$names[-1],collapse="+"),sep="")))
+```
+
+datalmy dataframe contains model predictors and outcome.
+Estimate model parameters with lm():
+```{r}
+datalmy<-datalm
+
+datalmy$y<-train_logy
+
+step_lm<-lm(lm_formula, datalmy)
+
+summary(step_lm)
+```
+
+Let's evaluate the model predictive capability on the train set using the postResample() function from caret package:
+```{r}
+pred_lm_train<-predict(step_lm,datalm)
+
+postResample(pred=pred_lm_train, obs=train_logy)
+```
+The predictive capacity of the linear regression model (measured by R-squared) is 55.48%, with an RMSE of 0.314.
+
+```{r}
+plot(pred_lm_train, train_logy)
+```
+
+Manage test set similarly as done before to the train one.
+```{r}
+test<-data.test.train[[2]]
+
+names(test)
+```
+
+
+```{r}
+test.features<-test[,c(6:52)]
+
+test.outcome<-test[,4]
+
+test.features.s<-as.data.frame(lapply(test.features, normalize))
+test.features.s$cl3[is.na(test.features.s$cl3)]<-0
+test.features.s$cl7[is.na(test.features.s$cl7)]<-0 # for missing values
+
+pred_lm_test<-predict(step_lm,test.features.s)
+
+postResample(pred_lm_test, test.outcome)  # test predictive performance
+```
+As expected the model perfors better on the train set. Over the test set R^2 is 48.39%.
+
+
+# MARS (Multivariate Adaptive Regression Splines): to evaluate the potential non-linear relationships of each predictor.
+
+Parameterizing with lines that can change direction when they encounter an internal node within the exposure range. 
+Use the concept of variable expansion creating new variables starting from the initial ones.
+
+First without considering interaction terms (degree = 1).
+```{r}
+set.seed(23)
+
+earth_fit<-earth(
+  x = datalm,    # predictors dataset
+  y = train.outcome,
+  pmethod='cv',
+  nfold = 5,
+  degree = 1,  # with or without interactions
+  minspan = -1  # one internal node
+)
+```
+
+```{r}
+summary(earth_fit) # earth fit contains the model
+```
+With cross-validation method (pmethod='cv'), model selects 34 predictors over 49 total ones.
+
+
+
+Three different indices to represent importance:
+
+- nsubsets indicates the number of "subsets" in which the variable is included. A subset refers to a model with a number of terms lower than that determined by the optimal model.
+
+- generalized cross-validation is calculated by computing the difference of the GCV between models containing or not containing the variable in question. The value is normalized to the maximum value calculated for the considered variables, which is set equal to 100.
+
+- rss is calculated through the difference in the sum of the squares of the residuals between models containing or not containing the variable in question. The value is normalized to the maximum value calculated for the considered variables, which is set equal to 100.
+
+Showing variables predictive capabilities:
+```{r}
+evimp(earth_fit)
+```
+
+
+```{r}
+pred_mars_train<-predict(earth_fit,datalm)
+postResample(pred_mars_train,train.outcome)
+```
+
+
+```{r}
+pred_mars_test<-predict(earth_fit,test.features.s)
+postResample(pred_mars_test, test.outcome)
+```
+Considering model concerning non-linearity the performance increases.
+
+
+# WITH INTERACTIONS
+
+Find spurious associations, random patterns, which in practice show a very high R^2 on the training dataset, but then become very low on the test dataset, especially when there are many predictors. Therefore, models like elastic net should be used, which consider a very high number of predictors, but knowing the possibility of overfitting, penalize the coefficients that exhibit this overfitting.
+```{r}
+earth_fit2<-earth::earth(
+  x = datalm,
+  y = train.outcome,
+  pmethod='cv',
+  nfold = 5,
+  degree = 2,  # with interactions
+  minspan = -1,
+  nprune = 47
+)
+```
+
+
+```{r}
+summary(earth_fit2)
+```
+
+
+```{r}
+pred_mars_train2<-predict(earth_fit2,datalm)
+postResample(pred_mars_train2,train.outcome)
+
+pred_mars_test2<-predict(earth_fit2,test.features.s)
+postResample(pred_mars_test2, test.outcome)
+```
+The model shows an increase in predictive capacity in the training dataset with an R^2 of 65,08%, suggesting the possible presence of interactions. 
+Also in the validation dataset, the performance improves with an R^2 of 55,25%.
+
+
+# REGRESSION TREES
+
+Regression trees can characterize nonlinear trends and cosider interactions.
+Fix the parameter "cp" (complexity parameter). Obtain a graph representing the relative error.
+```{r}
+train_tree<-cbind.data.frame(train.outcome,train.features.s)
+
+tree_fit <- rpart(train.outcome ~ ., data = train_tree, control=rpart.control(cp=0.001))
+#tree_fit  # describe the model
+
+plotcp(tree_fit) # cp: complexity parameter, dimension of the tree
+```
+I look at the function to set the complexity of the model.
+
+To visualize the regression tree:
+```{r}
+#summary(tree_fit)
+rpart.plot::rpart.plot(
+  tree_fit,
+  type = 3,
+  branch = .75,
+  under = TRUE
+) 
+```
+
+
+Variables importance:
+```{r}
+tree_fit$variable.importance
+```
+
+
+Prediction on train set:
+```{r}
+pred_tree_train <- predict(tree_fit, train.features.s)
+
+postResample(pred_tree_train, train.outcome)
+```
+
+Prediction on test set:
+```{r}
+pred_tree_test <- predict(tree_fit, test.features.s)
+
+caret::postResample(pred_tree_test, test.outcome)
+```
+Performance is similar to the Multivariate Adaptive Regression Splines with interactions.
+
+
+# RANDOM FOREST
+Ensemble model which use bagging of regression trees build over subset of the initial dataset.
+Parameters: num.trees=500, so 500 trees, mtry=20 to limit to 20 possible random predictors
+
+
+```{r}
+formula.pm10 <- as.formula(paste("train.outcome", paste(names(train.features.s),collapse="+"), sep="~"))
+
+trainrf<-cbind.data.frame(train.features.s, train.outcome)
+
+modfull <- ranger(formula.pm10, data=trainrf, num.trees=500, mtry=20, # max predictors per tree
+                  respect.unordered.factors=TRUE, importance="impurity",
+                  seed=23)
+```
+
+Using importance="impurity" command investigates key variables in prediction. Importance calculated as average SSE reduction when variable used compared to all trees.
+Absolute values:
+```{r}
+abs.impo<-modfull$variable.importance
+(abs.impo<-abs.impo[order(abs.impo)])
+```
+
+Relative values:
+```{r}
+rel.impo<-(round(modfull$variable.importance/sum(modfull$variable.importance),3)*100)
+(rel.impo<-rel.impo[order(rel.impo)])
+```
+
+
+```{r}
+pred_forest_train<- predict(modfull, trainrf)$prediction
+
+postResample(pred_forest_train, train.outcome)
+```
+
+
+```{r}
+testrf<-cbind.data.frame(test.features.s,test.outcome)
+
+pred_forest_test<- predict(modfull, testrf)$prediction
+
+postResample(pred_forest_test, test.outcome)
+```
+
+The model's predictive capacity increases to R^2 = 0.975 in the training dataset and R^2 = 0.847 in the validation dataset.
+
+
+# Neural Networks
+
+```{r}
+train.outcome.s<-(train.outcome - min(train.outcome)) / (max(train.outcome) - min(train.outcome))
+
+train.nn<-cbind.data.frame(train.outcome.s,train.features.s)
+```
+
+
+```{r}
+namesnn <- names(train.nn)
+
+form <- as.formula(paste("train.outcome.s ~", paste(namesnn[!namesnn %in% "train.outcome.s"], collapse = " + "))) 
+form
+```
+
+Net with just one hidden layer of 32 nodes and linear activation function.
+```{r}
+nnfit <- neuralnet(form, data = train.nn, rep=1, stepmax=100000, lifesign="full", threshold=0.1, hidden=c(32), linear.output = TRUE)
+#nnfit <- neuralnet(form, data = train.nn, rep=1, stepmax=100000, lifesign="full", threshold=0.1, hidden=c(1), linear.output = FALSE,act.fct="logistic")
+```
+
+Model info:
+```{r}
+#nnfit$result.matrix
+```
+
+
+Nodes weights:
+```{r}
+weights<-nnfit$result.matrix[5:50,]
+
+(weights<-weights[order(weights)])
+```
+
+
+Show the Neural Network
+```{r}
+plot(nnfit)
+```
+
+Prediction on train set
+```{r}
+pred_nn_train <- predict(nnfit,train.features.s)
+postResample(pred_nn_train, train.outcome.s)
+```
+
+Predictions on test set
+```{r}
+test.outcome.s<-(test.outcome - min(test.outcome)) / (max(test.outcome) - min(test.outcome))
+
+pred_nn_test <-predict(nnfit,newdata=test.features.s) 
+postResample(pred_nn_test, test.outcome.s)
+```
+
+With just one hidden layer the neural net performs well in training set, but only achieved R^2 = 0.44 on the test set, suggesting overfitting with this setting.
+
+
+# SVM Support Vector Regression
+
+```{r}
+#library(e1071)
+# SVR model
+svr_model <- svm(x = train.features.s, y = train.outcome.s, kernel = "radial")
+```
+
+Prediction on train set
+```{r}
+pred_svr_train <- predict(svr_model,train.features.s)
+postResample(pred_svr_train, train.outcome.s)
+```
+
+Predictions on test set
+```{r}
+pred_svr_test <-predict(svr_model,newdata=test.features.s) 
+postResample(pred_svr_test, test.outcome.s)
+```
+Unlike traditional linear regression, SVR allows for the identification of non-linear relationships by introducing a mapping into a higher-dimensional space through the use of kernel function.
+This can be seen by observing the good performance in prediction of SVR, considering R^2 = 87,12% on train and 76,97 % on test compared to the linear one.
